@@ -2,7 +2,7 @@
 
 Las referencias siguen la nomenclatura `Clase#línea` o `Clase#método`. Cada comentario indica su prioridad.
 
-- **[BLOQUEANTE]** No aprobaría la PR sin corregirlo, porque no cumple una historia de usuario o falla en ejecución.
+- **[BLOQUEANTE]** No aprobaría la PR sin corregirlo, porque no cumple una historia de usuario, falla en ejecución o introduce un riesgo que no aceptaría en producción.
 - **[IMPORTANTE]** Pediría arreglarlo en esta PR o en la siguiente.
 - **[SUGERENCIA]** Mejora que propondría y hablaría con el equipo.
 - **[NIT]** Detalle menor.
@@ -13,7 +13,7 @@ Las referencias siguen la nomenclatura `Clase#línea` o `Clase#método`. Cada co
 
 | Historia de usuario | Estado | Motivo principal |
 |---|---|---|
-| 1. Puntuación | No se cumple | La completitud sobrescribe la puntuación y las palabras clave casi nunca se detectan |
+| 1. Puntuación | No se cumple | La completitud sobrescribe la puntuación y las palabras clave con mayúscula o puntuación no se detectan |
 | 2. Ocultar irrelevantes | No se cumple | El listado público devuelve un error 500 si los anuncios no están puntuados |
 | 3. Fecha de irrelevancia | No se cumple | La fecha se reinicia en cada recálculo |
 | 4. Orden | No se cumple | El listado se ordena de peor a mejor |
@@ -49,7 +49,7 @@ if (ad.isComplete()) {
 
 La historia dice que un anuncio completo "proporciona otros 40 puntos", pero aquí se asigna 40 y se pierde todo lo acumulado. Cualquier anuncio completo vale exactamente 40, así que ordenar por calidad deja de tener sentido. Debería ser `score += Constants.FORTY`.
 
-### Las palabras clave casi nunca se detectan y el recuento de palabras falla (`AdsServiceImpl#93` y `AdsServiceImpl#110-114`) [BLOQUEANTE]
+### Las palabras clave con mayúscula o puntuación no se detectan y el recuento de palabras falla (`AdsServiceImpl#93` y `AdsServiceImpl#110-114`) [BLOQUEANTE]
 
 ```java
 List<String> wds = Arrays.asList(description.split(" "));
@@ -59,6 +59,8 @@ if (wds.contains("luminoso")) score += Constants.FIVE;
 - La comparación distingue mayúsculas, así que "Nuevo" o "Ático" no puntúan, aunque el propio README las escribe así.
 - Separar por un espacio deja la puntuación pegada a la palabra, y "reformado." o "céntrico," no coinciden.
 - Los espacios repetidos cuentan como palabras y los saltos de línea no separan, y ese recuento decide los puntos por longitud.
+
+Con los datos de prueba se detectan 5 de las 9 palabras clave que aparecen. En el anuncio 2 no se detectan "Nuevo" ni "reformado.", y en el 4 no se detectan "Ático" ni "reformado,". Cada uno pierde 10 puntos.
 
 Normalizaría la descripción una sola vez (minúsculas con `Locale` explícito y separando por todo lo que no sea letra o número) y usaría esa lista para contar palabras y para buscar palabras clave.
 
@@ -106,6 +108,8 @@ int calculate(Ad ad) {
 - **[NIT]** `AdsServiceImpl#71-115`. Hay demasiado anidamiento de `if` y `else`. Extrayendo un método por regla con retornos tempranos, la mayoría de `else` desaparecen. No los quitaría todos por norma, porque el de `AdsServiceImpl#132-136` representa dos caminos distintos.
 - **[NIT]** `AdsServiceImpl#122-130`. Se guarda la puntuación y luego se corrige. Es más claro ajustarla antes con `Math.max(0, Math.min(100, score))`.
 - **[NIT]** `AdsServiceImpl#70-78`. Los comentarios repiten lo que dice el código.
+- **[NIT]** `AdsServiceImpl#75`. Una foto con `quality` a `null` cuenta como SD sin avisar, porque `Quality.HD.equals(null)` devuelve `false`. Lo validaría al construir `Picture`.
+- **[NIT]** `Constants`. La clase no es `final` y no tiene constructor privado, así que se puede instanciar o extender sin sentido.
 
 ### Dudas para producto
 
@@ -217,7 +221,7 @@ Además, ahora mismo el orden es arbitrario. Por el fallo de la completitud de l
 
 ### No hay criterio de desempate (`AdsServiceImpl#21`) [IMPORTANTE]
 
-Cuando dos anuncios tienen la misma puntuación, `List.sort` respeta el orden en que llegan del repositorio. En `InMemoryPersistence#save` cada anuncio guardado se borra y se vuelve a añadir al final, así que ese orden cambia con cada recálculo y dos anuncios empatados pueden intercambiarse entre una petición y otra. Añadiría un segundo criterio fijo, como el id o la fecha de publicación, y lo consultaría con producto.
+Cuando dos anuncios tienen la misma puntuación, `List.sort` respeta el orden en que llegan del repositorio, que es el orden de inserción de `InMemoryPersistence`. Ahora el recálculo completo lo deja igual, pero es un detalle de implementación. `InMemoryPersistence#save` mueve el anuncio guardado al final, así que cualquier `save` individual (por ejemplo, al editar un anuncio) ya lo alteraría, y con una base de datos sin `ORDER BY` el orden sería indefinido. Añadiría un segundo criterio fijo, como el id o la fecha de publicación, y lo consultaría con producto.
 
 ```java
 Comparator.comparing(Ad::getScore).reversed().thenComparing(Ad::getId)
@@ -274,7 +278,7 @@ public AdsServiceImpl(AdRepository adRepository) {
 
 `Ad` tiene setters públicos para todos sus campos, incluido el `id`. Cualquier clase puede poner una puntuación de 500 o una fecha de irrelevancia a un anuncio relevante, y ninguna regla lo impide. Quitaría los setters y dejaría que el estado cambie solo a través de métodos de dominio como el `updateScore` propuesto en la historia 3.
 
-Además, `equals` y `hashCode` comparan todos los campos. En una entidad la identidad debería ser solo el `id`. Con la implementación actual, un anuncio deja de ser igual a sí mismo en cuanto cambia su puntuación, y eso da problemas en un `Set` o como clave de un `Map`.
+Además, `equals` y `hashCode` comparan todos los campos. En una entidad la identidad debería ser solo el `id`. Con la implementación actual, dos instancias del mismo anuncio (mismo `id`) dejan de ser iguales si difieren en la puntuación. Además, si cambia la puntuación de un anuncio guardado en un `HashSet` o usado como clave de un `HashMap`, su `hashCode` cambia y ya no se encuentra.
 
 ### Otros detalles
 
@@ -337,7 +341,7 @@ La conversión entre `PictureVO` y `Picture` sí está bien ubicada. Es responsa
 - **[SUGERENCIA]** `InMemoryPersistence#53-54`. Al guardar un anuncio se vuelven a guardar todas sus fotos, aunque puntuar no las cambia.
 - **[NIT]** `InMemoryPersistence#82` y `InMemoryPersistence#96`. `Typology.valueOf` y `Quality.valueOf` lanzan una excepción sin contexto si hay un dato incorrecto, y no indican qué anuncio falla.
 - **[NIT]** `AdVO` y `PictureVO`. "VO" suele significar Value Object, pero son modelos de persistencia mutables y con identidad. `AdEntity` o `AdRecord` serían nombres más precisos.
-- **[NIT]** `InMemoryPersistence#20-27`. Los datos de prueba están en el constructor, y tienen incoherencias, como el anuncio 1, que es un chalet con la descripción "Este piso...", o garajes con tamaño de vivienda. Los cargaría desde un fichero.
+- **[NIT]** `InMemoryPersistence#20-27`. Los datos de prueba están en el constructor, y tienen incoherencias, como el anuncio 1, que es un chalet con la descripción "Este piso...", o garajes con tamaño de vivienda. Además, ningún chalet tiene tamaño de jardín, así que la regla de completitud de los chalets nunca se prueba con estos datos. Los cargaría desde un fichero.
 
 ---
 
@@ -364,7 +368,7 @@ Añadiría estos tests.
 ### Otros detalles
 
 - **[NIT]** `AdsServiceImplTest#34` y `AdsServiceImplTest#43`. Los dos anuncios del test tienen `id = 1`, así que representan el mismo anuncio con datos distintos. Con el repositorio real, el segundo `save` pisaría al primero.
-- **[NIT]** `AdsServiceImplTest#relevantAd`. Por el fallo de la completitud, este anuncio obtiene exactamente 40 puntos, así que es relevante por casualidad.
+- **[NIT]** `AdsServiceImplTest#relevantAd`. Por el fallo de la completitud, este anuncio obtiene 40 puntos cuando debería obtener 100 (40 por las fotos, 5 por la descripción, 30 por sus 51 palabras y 40 por estar completo, con el máximo de 100), y el test no lo detecta.
 - **[NIT]** `AdsServiceImplTest#23`. El campo se llama `scoreService`, pero la clase probada es `AdsServiceImpl`. Además, en JUnit 5 los métodos de test no necesitan ser `public`.
 
 ---
@@ -377,7 +381,7 @@ El proyecto compila, pero el `pom.xml` no incluye `spring-boot-maven-plugin`. Si
 
 ### Versiones sin soporte (`pom.xml#15` y `pom.xml#20`) [SUGERENCIA]
 
-Spring Boot 2.1.3 es de 2019, y toda la rama 2.x dejó de tener soporte gratuito a finales de 2023. Java 8 es de 2014 y ya hay cuatro versiones LTS posteriores. Con estas versiones no llegan parches de seguridad gratuitos, y además Spring Boot 3 exige como mínimo Java 17. No es algo de esta PR, pero propondría planificar la migración a Spring Boot 3 con Java 21 como una tarea técnica aparte, porque mezclarla con estos cambios haría imposible revisarlos.
+Spring Boot 2.1.3 es de 2019, y toda la rama 2.x dejó de tener soporte gratuito a finales de 2023. Java 8 es de 2014 y ya hay cuatro versiones LTS posteriores. Con estas versiones no llegan parches de seguridad gratuitos. Spring Boot 4 salió en noviembre de 2025 y exige como mínimo Java 17. No es algo de esta PR, pero propondría planificar la migración a Spring Boot 4 con Java 21 o 25 como una tarea técnica aparte, porque mezclarla con estos cambios haría imposible revisarlos.
 
 ### Otros detalles
 
