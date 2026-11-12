@@ -379,6 +379,8 @@ Añadiría estos tests.
 
 El proyecto compila, pero el `pom.xml` no incluye `spring-boot-maven-plugin`. Sin él, `mvn package` genera un jar sin clase principal ni dependencias, y `java -jar` falla con el error "no hay ningún atributo de manifiesto principal". Solo se puede arrancar con `mvn spring-boot:run`, lo que impide desplegarlo de la forma habitual.
 
+No lo marco como bloqueante porque no sé cómo despliega el equipo, y la aplicación funciona con `mvn spring-boot:run`. Si el despliegue se hace con `java -jar`, lo subiría a bloqueante, porque el artefacto generado no se puede desplegar.
+
 ### Versiones sin soporte (`pom.xml#15` y `pom.xml#20`) [SUGERENCIA]
 
 Spring Boot 2.1.3 es de 2019, y toda la rama 2.x dejó de tener soporte gratuito a finales de 2023. Java 8 es de 2014 y ya hay cuatro versiones LTS posteriores. Con estas versiones no llegan parches de seguridad gratuitos. Spring Boot 4 salió en noviembre de 2025 y exige como mínimo Java 17. No es algo de esta PR, pero propondría planificar la migración a Spring Boot 4 con Java 21 o 25 como una tarea técnica aparte, porque mezclarla con estos cambios haría imposible revisarlos.
